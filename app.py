@@ -535,9 +535,13 @@ def create_app():
         result = []
         for row in rows:
             filepath = (row[1] or "").replace("~", str(Path.home()))
+            fname = row[3] or os.path.basename(filepath)
+            # Skip iMessage plugin payload attachments (rich link previews)
+            if fname.endswith(".pluginPayloadAttachment"):
+                continue
             result.append({
                 "id": row[0],
-                "filename": row[3] or os.path.basename(filepath),
+                "filename": fname,
                 "mime_type": row[2],
                 "size": row[4],
                 "exists": os.path.exists(filepath) if filepath else False,
