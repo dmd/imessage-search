@@ -243,13 +243,18 @@ def create_app():
     """):
         cid, display_name, chat_id, members = row[0], row[1], row[2], row[3]
         member_list = members.split("|||") if members else []
+        is_group = bool(display_name) or len(member_list) > 1
+        # Resolve member names for group chats
+        member_names = [resolve_handle(m, contacts) for m in member_list if m]
         if display_name:
             name = display_name
+        elif is_group and member_names:
+            # Show resolved member names instead of "chat123456"
+            name = ", ".join(sorted(member_names))
         elif chat_id:
             name = resolve_handle(chat_id, contacts)
         else:
             name = "Unknown Chat"
-        is_group = bool(display_name) or len(member_list) > 1
         chats[cid] = {"id": cid, "name": name, "is_group": is_group, "identifier": chat_id}
 
     app = Flask(__name__)
@@ -491,11 +496,17 @@ def create_app():
         for entry in sorted(seen.values(), key=lambda x: x["name"].lower()):
             if entry["msg_count"] == 0:
                 continue  # Skip empty chats
+            # A chat is "resolved" if its name contains at least one known contact name
+            name = entry["name"]
+            is_resolved = any(
+                cname in name for cname in contacts.values()
+            ) if contacts else False
             result.append({
                 "id": entry["id"],
-                "name": entry["name"],
+                "name": name,
                 "is_group": entry["is_group"],
                 "msg_count": entry["msg_count"],
+                "is_resolved": is_resolved,
             })
         return jsonify(result)
 
@@ -946,6 +957,10 @@ mark {
                     <select id="filter-contact" class="filter-input" style="max-width:200px">
                         <option value="">Anyone</option>
                     </select>
+                    <label class="toggle-group" style="margin-left:2px">
+                        <input type="checkbox" id="show-unknowns" onchange="rebuildContactDropdown()">
+                        <span style="font-size:11px">Show unknowns</span>
+                    </label>
                 </div>
                 <div class="filter-group">
                     <label>From</label>
@@ -965,6 +980,10 @@ mark {
                     <select id="filter-chat" class="filter-input" style="max-width:180px">
                         <option value="">All chats</option>
                     </select>
+                    <label class="toggle-group" style="margin-left:2px">
+                        <input type="checkbox" id="show-unknown-chats" onchange="rebuildChatDropdown()">
+                        <span style="font-size:11px">Show unknowns</span>
+                    </label>
                 </div>
                 <label class="toggle-group">
                     <input type="checkbox" id="regex-toggle">
@@ -997,40 +1016,65 @@ fetch('/api/stats').then(r => r.json()).then(s => {
         s.date_from + ' to ' + s.date_to;
 });
 
-// Load contacts for dropdown — resolved names first, then raw handles
+// Load contacts for dropdown — cache for rebuild
+let allContacts = [];
 fetch('/api/contacts').then(r => r.json()).then(contacts => {
+    allContacts = contacts;
+    rebuildContactDropdown();
+});
+
+function rebuildContactDropdown() {
     const sel = document.getElementById('filter-contact');
-    const resolved = contacts.filter(c => c.is_resolved);
-    const unresolved = contacts.filter(c => !c.is_resolved);
+    const prev = sel.value;
+    // Remove all optgroups but keep the first "Anyone" option
+    while (sel.children.length > 1) sel.removeChild(sel.lastChild);
+
+    const showUnknowns = document.getElementById('show-unknowns').checked;
+    const resolved = allContacts.filter(c => c.is_resolved);
+    const unresolved = allContacts.filter(c => !c.is_resolved);
+
     if (resolved.length > 0) {
-        const grp1 = document.createElement('optgroup');
-        grp1.label = 'Contacts';
+        const grp = document.createElement('optgroup');
+        grp.label = 'Contacts';
         resolved.forEach(c => {
             const opt = document.createElement('option');
             opt.value = c.name;
             opt.textContent = c.name;
-            grp1.appendChild(opt);
+            grp.appendChild(opt);
         });
-        sel.appendChild(grp1);
+        sel.appendChild(grp);
     }
-    if (unresolved.length > 0) {
-        const grp2 = document.createElement('optgroup');
-        grp2.label = 'Other';
+    if (showUnknowns && unresolved.length > 0) {
+        const grp = document.createElement('optgroup');
+        grp.label = 'Other (' + unresolved.length + ')';
         unresolved.forEach(c => {
             const opt = document.createElement('option');
             opt.value = c.name;
             opt.textContent = c.name;
-            grp2.appendChild(opt);
+            grp.appendChild(opt);
         });
-        sel.appendChild(grp2);
+        sel.appendChild(grp);
     }
+    sel.value = prev;
+}
+
+// Load chats for dropdown — cache for rebuild
+let allChats = [];
+fetch('/api/chats').then(r => r.json()).then(chats => {
+    allChats = chats;
+    rebuildChatDropdown();
 });
 
-// Load chats for dropdown — groups and 1-on-1 separated
-fetch('/api/chats').then(r => r.json()).then(chats => {
+function rebuildChatDropdown() {
     const sel = document.getElementById('filter-chat');
-    const oneOnOne = chats.filter(c => !c.is_group);
-    const groups = chats.filter(c => c.is_group);
+    const prev = sel.value;
+    while (sel.children.length > 1) sel.removeChild(sel.lastChild);
+
+    const showUnknowns = document.getElementById('show-unknown-chats').checked;
+    const visible = showUnknowns ? allChats : allChats.filter(c => c.is_resolved);
+    const oneOnOne = visible.filter(c => !c.is_group);
+    const groups = visible.filter(c => c.is_group);
+
     if (oneOnOne.length > 0) {
         const grp = document.createElement('optgroup');
         grp.label = 'Direct Messages';
@@ -1053,7 +1097,8 @@ fetch('/api/chats').then(r => r.json()).then(chats => {
         });
         sel.appendChild(grp);
     }
-});
+    sel.value = prev;
+}
 
 // Direction filter
 document.querySelectorAll('#direction-filter button').forEach(btn => {
