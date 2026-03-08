@@ -8,7 +8,7 @@ But the built in search is awful, so here we are.
 It's just the single file you see here.
 
 I refuse to deal with Python dependencies at all any more, even for something as simple as this
-that has only one dependency (Flask). So either install Flask yourself and run with `python3 app.py`, or
+that has only one (Flask). So either install Flask yourself and run with `python3 app.py`, or
 install [uv](https://docs.astral.sh/uv/) and run with `./app.py`.
 
 # Notes
