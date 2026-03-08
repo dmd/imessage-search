@@ -357,8 +357,10 @@ def create_app():
             params.append(int((dt.timestamp() - APPLE_EPOCH_OFFSET) * 1_000_000_000))
 
         if chat_id_filter:
-            base += " AND cmj.chat_id = ?"
-            params.append(int(chat_id_filter))
+            chat_ids = [int(x) for x in chat_id_filter.split(",")]
+            placeholders = ",".join("?" * len(chat_ids))
+            base += f" AND cmj.chat_id IN ({placeholders})"
+            params.extend(chat_ids)
 
         if contact_filter:
             handle_ids = []
@@ -502,7 +504,7 @@ def create_app():
                 cname in name for cname in contacts.values()
             ) if contacts else False
             result.append({
-                "id": entry["id"],
+                "id": ",".join(str(c) for c in entry["chat_ids"]),
                 "name": name,
                 "is_group": entry["is_group"],
                 "msg_count": entry["msg_count"],
