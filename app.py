@@ -564,7 +564,7 @@ def create_app():
 # ---------------------------------------------------------------------------
 # HTML Template
 # ---------------------------------------------------------------------------
-HTML_TEMPLATE = """<!DOCTYPE html>
+HTML_TEMPLATE = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -784,7 +784,7 @@ input[type="date"].filter-input { max-width: 140px; }
     flex-direction: column;
     margin-bottom: 6px;
     max-width: 85%;
-    cursor: pointer;
+    user-select: text;
 }
 .message-row.sent {
     align-self: flex-end;
@@ -852,41 +852,53 @@ mark {
     display: none;
 }
 .context-container.visible { display: block; }
-.show-context-btn {
-    display: block;
-    width: 100%;
-    padding: 6px;
-    font-size: 12px;
-    color: var(--blue);
+/* Context button */
+.context-btn-wrap {
+    text-align: center;
+    margin: 2px 0 8px;
+}
+.context-btn {
+    font-size: 11px;
+    color: var(--text-secondary);
     background: none;
     border: none;
-    border-top: 1px solid var(--border);
     cursor: pointer;
     font-family: inherit;
+    padding: 2px 8px;
+    border-radius: 4px;
 }
-.show-context-btn:hover { background: var(--bg); }
+.context-btn:hover { color: var(--blue); background: var(--bg); }
 
-/* Attachment badge */
-.attachment-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 12px;
-    padding: 3px 8px;
-    background: rgba(0,0,0,0.06);
-    border-radius: 6px;
-    margin-top: 4px;
-    color: var(--text-secondary);
+/* Inline attachments */
+.attachment-inline img {
+    max-width: 300px;
+    max-height: 240px;
+    border-radius: 10px;
+    margin-top: 6px;
+    display: block;
     cursor: pointer;
 }
-.sent .attachment-badge { background: rgba(255,255,255,0.2); color: white; }
-.attachment-img {
-    max-width: 280px;
-    max-height: 200px;
-    border-radius: 10px;
+.attachment-inline a {
+    display: inline-block;
+    font-size: 12px;
     margin-top: 4px;
-    display: block;
+    color: var(--blue);
 }
+.sent .attachment-inline a { color: rgba(255,255,255,0.9); }
+.attachment-inline .att-unavailable {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+}
+
+/* Links inside bubbles */
+.bubble a {
+    color: inherit;
+    text-decoration: underline;
+    text-decoration-color: rgba(255,255,255,0.5);
+}
+.received .bubble a { text-decoration-color: rgba(0,0,0,0.3); }
+.bubble a:hover { text-decoration-color: inherit; }
 
 /* Load more */
 .load-more {
@@ -1132,17 +1144,22 @@ function highlightText(text, query) {
         return escapeHtml(text);
     }
     // For FTS queries, highlight individual terms
-    const terms = query.replace(/NOT\\s+\\w+/gi, '')
-                       .replace(/\\bOR\\b/gi, '')
+    const terms = query.replace(/NOT\s+\w+/gi, '')
+                       .replace(/\bOR\b/gi, '')
                        .replace(/["-]/g, '')
-                       .split(/\\s+/)
+                       .split(/\s+/)
                        .filter(t => t.length > 0);
     let html = escapeHtml(text);
     terms.forEach(term => {
-        const re = new RegExp('(' + term.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&') + ')', 'gi');
+        const re = new RegExp('(' + term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
         html = html.replace(re, '<mark>$1</mark>');
     });
     return html;
+}
+
+function linkify(html) {
+    // Turn URLs into clickable links (applied after escaping/highlighting)
+    return html.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
 }
 
 function renderMessage(msg, query, isContext) {
@@ -1152,10 +1169,11 @@ function renderMessage(msg, query, isContext) {
     if (!msg.is_from_me && msg.is_group) {
         senderHtml = '<div class="sender-name">' + escapeHtml(msg.sender) + '</div>';
     }
-    const textHtml = isContext ? escapeHtml(msg.text) : highlightText(msg.text, query);
+    let textHtml = isContext ? escapeHtml(msg.text) : highlightText(msg.text, query);
+    textHtml = linkify(textHtml);
     let attachHtml = '';
     if (msg.has_attachments) {
-        attachHtml = '<div class="attachment-badge" onclick="event.stopPropagation(); loadAttachments(' + msg.id + ', this)">&#128206; Attachment</div>';
+        attachHtml = '<div class="attachment-inline" data-msg-id="' + msg.id + '"></div>';
     }
     return '<div class="message-row ' + cls + contextCls + '">' +
         senderHtml +
@@ -1209,8 +1227,9 @@ function renderResults(data, append) {
             escapeHtml(group.chat_name) + '</span></div>';
         html += '<div class="messages-wrap">';
         group.messages.forEach(msg => {
-            html += '<div data-msg-id="' + msg.id + '" onclick="toggleContext(this, ' + msg.id + ')">';
+            html += '<div data-msg-id="' + msg.id + '">';
             html += renderMessage(msg, query, false);
+            html += '<div class="context-btn-wrap"><button class="context-btn" data-ctx-id="' + msg.id + '">Show context</button></div>';
             html += '</div>';
         });
         html += '</div>';
@@ -1220,6 +1239,9 @@ function renderResults(data, append) {
 
     const shown = data.page * data.per_page;
     loadMoreBtn.style.display = shown < data.total ? 'block' : 'none';
+
+    // Auto-load inline attachments
+    loadInlineAttachments(container);
 }
 
 function doSearch(page) {
@@ -1286,27 +1308,43 @@ function toggleContext(el, messageId) {
             html += '</div>';
             ctxEl.innerHTML = html;
             el.appendChild(ctxEl);
+            loadInlineAttachments(ctxEl);
         });
 }
 
-function loadAttachments(messageId, badge) {
-    fetch('/api/attachments/' + messageId)
-        .then(r => r.json())
-        .then(attachments => {
-            if (!attachments.length) { badge.textContent = 'No attachments'; return; }
-            let html = '';
-            attachments.forEach(att => {
-                if (att.exists && att.mime_type && att.mime_type.startsWith('image/')) {
-                    html += '<img class="attachment-img" src="/api/attachment/' + att.id + '" alt="' + escapeHtml(att.filename) + '">';
-                } else if (att.exists) {
-                    html += '<a href="/api/attachment/' + att.id + '" target="_blank" style="font-size:12px;color:var(--blue)">' + escapeHtml(att.filename) + '</a>';
-                } else {
-                    html += '<span style="font-size:12px;color:var(--text-secondary)">' + escapeHtml(att.filename) + ' (unavailable)</span>';
-                }
+function loadInlineAttachments(container) {
+    // Find all attachment placeholders and load them
+    container.querySelectorAll('.attachment-inline[data-msg-id]').forEach(el => {
+        const msgId = el.dataset.msgId;
+        if (el.dataset.loaded) return;
+        el.dataset.loaded = '1';
+        fetch('/api/attachments/' + msgId)
+            .then(r => r.json())
+            .then(attachments => {
+                let html = '';
+                attachments.forEach(att => {
+                    if (att.exists && att.mime_type && att.mime_type.startsWith('image/')) {
+                        html += '<img src="/api/attachment/' + att.id + '" alt="' + escapeHtml(att.filename) + '" onclick="window.open(this.src)">';
+                    } else if (att.exists) {
+                        html += '<a href="/api/attachment/' + att.id + '" target="_blank">' + escapeHtml(att.filename) + '</a><br>';
+                    } else {
+                        html += '<span class="att-unavailable">' + escapeHtml(att.filename) + ' (unavailable)</span><br>';
+                    }
+                });
+                el.innerHTML = html;
             });
-            badge.outerHTML = html;
-        });
+    });
 }
+
+// Delegated click handler for context buttons
+document.addEventListener('click', e => {
+    const btn = e.target.closest('.context-btn[data-ctx-id]');
+    if (btn) {
+        const msgId = parseInt(btn.dataset.ctxId);
+        const wrapper = btn.closest('[data-msg-id]');
+        if (wrapper) toggleContext(wrapper, msgId);
+    }
+});
 
 // Keyboard shortcut: Cmd+K to focus search
 document.addEventListener('keydown', e => {
