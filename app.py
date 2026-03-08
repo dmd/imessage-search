@@ -255,7 +255,7 @@ def create_app():
             name = resolve_handle(chat_id, contacts)
         else:
             name = "Unknown Chat"
-        chats[cid] = {"id": cid, "name": name, "is_group": is_group, "identifier": chat_id}
+        chats[cid] = {"id": cid, "name": name, "is_group": is_group, "identifier": chat_id, "has_display_name": bool(display_name)}
 
     app = Flask(__name__)
 
@@ -481,7 +481,8 @@ def create_app():
                     (cid,)
                 ).fetchone()[0]
                 seen[key] = {"id": cid, "name": name, "is_group": cinfo["is_group"],
-                             "msg_count": count, "chat_ids": [cid]}
+                             "msg_count": count, "chat_ids": [cid],
+                             "has_display_name": cinfo["has_display_name"]}
             else:
                 # Merge: add this chat_id, keep the one with more messages
                 count = conn.execute(
@@ -490,6 +491,7 @@ def create_app():
                 ).fetchone()[0]
                 seen[key]["chat_ids"].append(cid)
                 seen[key]["msg_count"] += count
+                seen[key]["has_display_name"] = seen[key]["has_display_name"] or cinfo["has_display_name"]
                 if count > 0 and seen[key]["id"] != cid:
                     # Keep the chat_id with the most recent activity
                     pass  # first one is fine, search will match by contact name anyway
@@ -498,11 +500,12 @@ def create_app():
         for entry in sorted(seen.values(), key=lambda x: x["name"].lower()):
             if entry["msg_count"] == 0:
                 continue  # Skip empty chats
-            # A chat is "resolved" if its name contains at least one known contact name
+            # A chat is "resolved" if it has an explicit display name or contains a known contact name
             name = entry["name"]
-            is_resolved = any(
-                cname in name for cname in contacts.values()
-            ) if contacts else False
+            is_resolved = entry["has_display_name"] or (
+                any(cname in name for cname in contacts.values())
+                if contacts else False
+            )
             result.append({
                 "id": ",".join(str(c) for c in entry["chat_ids"]),
                 "name": name,
@@ -983,8 +986,6 @@ mark {
                 <div class="filter-group">
                     <label>From</label>
                     <input type="date" id="filter-date-from" class="filter-input">
-                </div>
-                <div class="filter-group">
                     <label>To</label>
                     <input type="date" id="filter-date-to" class="filter-input">
                 </div>
