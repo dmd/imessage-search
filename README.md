@@ -15,5 +15,5 @@ install [uv](https://docs.astral.sh/uv/) and run with `./app.py`.
 
 It reads directly from your contacts and messages database. It opens in `mode=ro` (read only),
 so no worries. Your terminal needs Full Disk Access, but if you're somehow using a terminal without
-that enabled, you probably have other issues; consult a qualified rabbi.
+that enabled, you probably have other issues; consult a competent rabbi.
 
