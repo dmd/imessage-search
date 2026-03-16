@@ -138,6 +138,64 @@ struct SearchEngine {
         return SearchResults(results: results, total: total, page: page, perPage: MessageStore.perPage)
     }
 
+    /// Search returning ALL matching messages (no pagination), for grouping by chat
+    func searchAll(
+        query: String,
+        dateFrom: String = "",
+        useRegex: Bool = false,
+        chatIDs: [Int64] = []
+    ) -> [MessageInfo] {
+        if query.isEmpty { return [] }
+
+        var params: [Any?] = []
+        var base: String
+
+        if !useRegex {
+            let ftsQuery = Self.preprocessFTSQuery(query)
+            base = """
+                SELECT m.ROWID as message_id, m.text, m.attributedBody,
+                       m.is_from_me, m.date, m.handle_id,
+                       m.cache_has_attachments, cmj.chat_id
+                FROM message_fts fts
+                JOIN chatdb.message m ON fts.rowid = m.ROWID
+                LEFT JOIN chatdb.chat_message_join cmj ON m.ROWID = cmj.message_id
+                WHERE message_fts MATCH ?
+            """
+            params.append(ftsQuery)
+        } else {
+            base = """
+                SELECT m.ROWID as message_id, m.text, m.attributedBody,
+                       m.is_from_me, m.date, m.handle_id,
+                       m.cache_has_attachments, cmj.chat_id
+                FROM message_text mt
+                JOIN chatdb.message m ON mt.rowid = m.ROWID
+                LEFT JOIN chatdb.chat_message_join cmj ON m.ROWID = cmj.message_id
+                WHERE mt.text REGEXP ?
+            """
+            params.append(query)
+        }
+
+        if !dateFrom.isEmpty {
+            base += " AND m.date >= ?"
+            params.append(MessageStore.isoToAppleNS(dateFrom))
+        }
+
+        if !chatIDs.isEmpty {
+            let placeholders = chatIDs.map { _ in "?" }.joined(separator: ",")
+            base += " AND cmj.chat_id IN (\(placeholders))"
+            params.append(contentsOf: chatIDs.map { $0 as Any? })
+        }
+
+        base += " ORDER BY m.date DESC"
+
+        do {
+            let rows = try store.db.query(base, params: params)
+            return rows.map { store.messageToInfo($0) }
+        } catch {
+            return []
+        }
+    }
+
     /// Load conversation context around a message
     func context(messageID: Int64, count: Int = MessageStore.contextSize) -> [MessageInfo] {
         guard let chatRow = try? store.db.query(

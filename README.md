@@ -2,6 +2,8 @@
 
 You should be able to search your Apple Messages within Apple Messages. But the built in search is awful and half-assed, so here we are.
 
+I was unaware of the prior art "Chatology" when I wrote this, but now that I am, I've rewritten to use the same 3-pane drill-down interface it used, which is much better than my previous attempt.
+
 ![screenshot](screenshot.png)
 
 ## Install
@@ -32,6 +34,5 @@ This builds the Swift package and creates `dist/iMessage Search.app`.
 - Full-text search across all messages
 - Filter by contact, chat, date range, and direction (sent/received)
 - Regex search (probably? idk I barely tested that bit)
-- Conversation context expansion (click the triangle)
 - Inline image attachment previews
 - Group chat support with resolved contact names

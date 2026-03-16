@@ -59,6 +59,30 @@ struct SearchResults {
     let perPage: Int
 }
 
+/// A chat that has matching messages, with the count of matches
+struct ChatMatch: Identifiable, Hashable {
+    let id: String           // unique key: chatName
+    let chatName: String
+    let chatIDs: [Int64]     // may span multiple internal chat IDs
+    let isGroup: Bool
+    let matchCount: Int
+
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+    static func == (lhs: ChatMatch, rhs: ChatMatch) -> Bool { lhs.id == rhs.id }
+}
+
+/// A single matching message within a chat, shown in the middle column
+struct MessageMatch: Identifiable, Hashable {
+    let id: Int64            // message ROWID
+    let date: String?
+    let snippet: String      // first ~80 chars of message text
+    let isFromMe: Bool
+    let sender: String
+
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+    static func == (lhs: MessageMatch, rhs: MessageMatch) -> Bool { lhs.id == rhs.id }
+}
+
 enum AppLoadState {
     case loading(status: String)
     case permissionDenied

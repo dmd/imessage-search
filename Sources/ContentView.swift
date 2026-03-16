@@ -3,7 +3,6 @@ import SwiftUI
 struct ContentView: View {
     @State var state = AppState()
     @FocusState private var isSearchFocused: Bool
-    @State private var showFilters = false
 
     var body: some View {
         Group {
@@ -37,127 +36,44 @@ struct ContentView: View {
 
             case .ready:
                 VStack(spacing: 0) {
-                    VStack(spacing: 4) {
-                        // Row 1: Search field + contact + chat pickers
-                        HStack(spacing: 8) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "magnifyingglass")
-                                    .foregroundStyle(.tertiary)
-                                    .font(.system(size: 12))
-                                TextField("Search messages...", text: $state.searchQuery)
-                                    .textFieldStyle(.plain)
-                                    .font(.system(size: 13))
-                                    .focused($isSearchFocused)
-                                    .onSubmit { state.performSearch() }
-                            }
-                            .padding(.vertical, 5)
-                            .padding(.horizontal, 8)
-                            .background(Color(.controlBackgroundColor))
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
-
-                            Picker("Contact", selection: $state.selectedContact) {
-                                Text("Anyone").tag("")
-                                let resolved = state.contactEntries.filter(\.isResolved)
-                                let unresolved = state.contactEntries.filter { !$0.isResolved }
-                                if !resolved.isEmpty {
-                                    Section("Contacts") {
-                                        ForEach(resolved) { c in
-                                            Text(c.name).tag(c.name)
-                                        }
-                                    }
-                                }
-                                if state.showUnknownContacts && !unresolved.isEmpty {
-                                    Section("Other (\(unresolved.count))") {
-                                        ForEach(unresolved) { c in
-                                            Text(c.name).tag(c.name)
-                                        }
-                                    }
-                                }
-                            }
-                            .frame(width: 160)
-                            .controlSize(.small)
-
-                            Picker("Chat", selection: $state.selectedChatIDString) {
-                                Text("All chats").tag("")
-                                let visible = state.showUnknownChats
-                                    ? state.chatEntries
-                                    : state.chatEntries.filter(\.isResolved)
-                                let direct = visible.filter { !$0.isGroup }
-                                let groups = visible.filter(\.isGroup)
-                                if !direct.isEmpty {
-                                    Section("Direct") {
-                                        ForEach(direct) { c in
-                                            Text("\(c.name) (\(c.messageCount))").tag(c.id)
-                                        }
-                                    }
-                                }
-                                if !groups.isEmpty {
-                                    Section("Groups") {
-                                        ForEach(groups) { c in
-                                            Text("\(c.name) (\(c.messageCount))").tag(c.id)
-                                        }
-                                    }
-                                }
-                            }
-                            .frame(width: 160)
-                            .controlSize(.small)
-
-                            Picker("", selection: $state.direction) {
-                                Text("All").tag("all")
-                                Text("Sent").tag("sent")
-                                Text("Received").tag("received")
-                            }
-                            .pickerStyle(.segmented)
-                            .labelsHidden()
-                            .frame(width: 150)
-                            .controlSize(.small)
-                        }
-
-                        // Row 2: Dates, regex, unknowns, stats
-                        HStack(spacing: 8) {
-                            Text("From")
-                                .foregroundStyle(.secondary)
-                            TextField("YYYY-MM-DD", text: $state.dateFrom)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 100)
-
-                            Text("To")
-                                .foregroundStyle(.secondary)
-                            TextField("YYYY-MM-DD", text: $state.dateTo)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 100)
-
-                            Divider().frame(height: 14)
-
-                            Toggle("Regex", isOn: $state.useRegex)
-                                .toggleStyle(.checkbox)
-
-                            Divider().frame(height: 14)
-
-                            Toggle("Unknown contacts", isOn: $state.showUnknownContacts)
-                                .toggleStyle(.checkbox)
-
-                            Toggle("Unknown chats", isOn: $state.showUnknownChats)
-                                .toggleStyle(.checkbox)
-
-                            Spacer(minLength: 0)
-
-                            Text(state.statsLine)
-                                .foregroundStyle(.tertiary)
-                                .lineLimit(1)
-                        }
-                        .font(.system(size: 11))
-                        .controlSize(.small)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(.bar)
+                    // Top bar: search field + date filters + regex toggle
+                    searchBar
 
                     Divider()
 
-                    // Scrollable results
-                    ResultsView(state: state)
-                        .frame(maxHeight: .infinity)
+                    // Three-column layout
+                    HSplitView {
+                        // Left: chats with match counts
+                        ChatListColumn(
+                            chatMatches: state.chatMatches,
+                            selectedChat: state.selectedChat,
+                            onSelect: { chat in
+                                state.selectChat(chat)
+                            }
+                        )
+                        .frame(minWidth: 180, idealWidth: 220, maxWidth: 320)
+
+                        // Middle: individual matches in selected chat
+                        MatchListColumn(
+                            matches: state.matchesInChat,
+                            selectedMatch: state.selectedMatch,
+                            chatName: state.selectedChat?.chatName ?? "",
+                            onSelect: { match in
+                                state.selectMatch(match)
+                            }
+                        )
+                        .frame(minWidth: 200, idealWidth: 280, maxWidth: 400)
+
+                        // Right: full conversation scrolled to match
+                        ConversationColumn(
+                            messages: state.conversationMessages,
+                            selectedMatchID: state.selectedMatch?.id,
+                            query: state.searchQuery,
+                            isRegex: state.useRegex,
+                            loadAttachments: { state.loadAttachments(messageID: $0) }
+                        )
+                        .frame(minWidth: 300, idealWidth: 450)
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
@@ -172,5 +88,96 @@ struct ContentView: View {
                 return event
             }
         }
+    }
+
+    private var searchBar: some View {
+        HStack(spacing: 10) {
+            // Search field
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.tertiary)
+                    .font(.system(size: 12))
+                TextField("Search messages...", text: $state.searchQuery)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13))
+                    .focused($isSearchFocused)
+                    .onSubmit { state.performSearch() }
+                if !state.searchQuery.isEmpty {
+                    Button(action: {
+                        state.searchQuery = ""
+                        state.chatMatches = []
+                        state.selectedChat = nil
+                        state.matchesInChat = []
+                        state.selectedMatch = nil
+                        state.conversationMessages = []
+                        state.totalMatchCount = 0
+                    }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.tertiary)
+                            .font(.system(size: 12))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, 5)
+            .padding(.horizontal, 8)
+            .background(Color(.controlBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .frame(minWidth: 200, maxWidth: 350)
+
+            // Date filter buttons
+            ForEach(DateFilter.allCases, id: \.self) { filter in
+                Button(action: {
+                    state.dateFilter = filter
+                    if !state.searchQuery.isEmpty {
+                        state.performSearch()
+                    }
+                }) {
+                    Text(filter.rawValue)
+                        .font(.system(size: 11, weight: state.dateFilter == filter ? .semibold : .regular))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(state.dateFilter == filter ? Color.accentColor.opacity(0.15) : Color.clear)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(state.dateFilter == filter ? Color.accentColor : .secondary)
+            }
+
+            Divider().frame(height: 14)
+
+            // Regex toggle
+            Toggle("Regex", isOn: $state.useRegex)
+                .toggleStyle(.checkbox)
+                .font(.system(size: 11))
+                .controlSize(.small)
+
+            Spacer(minLength: 0)
+
+            // Status
+            if state.isSearching {
+                ProgressView()
+                    .scaleEffect(0.5)
+                    .frame(width: 16, height: 16)
+                Text("Searching...")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            } else if state.totalMatchCount > 0 {
+                Text("\(state.totalMatchCount) matches in \(state.chatMatches.count) chats")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Text(String(format: "(%.2fs)", state.searchTime))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+            } else {
+                Text(state.statsLine)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.bar)
     }
 }

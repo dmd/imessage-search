@@ -1,6 +1,33 @@
 import Foundation
 import SwiftUI
 
+enum DateFilter: String, CaseIterable {
+    case all = "All"
+    case today = "Today"
+    case last7 = "Last 7 Days"
+    case last30 = "Last 30 Days"
+    case lastYear = "Last Year"
+
+    /// Returns the YYYY-MM-DD string for the start of this filter range, or "" for all
+    func dateFromString() -> String {
+        let cal = Calendar.current
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        switch self {
+        case .all:
+            return ""
+        case .today:
+            return fmt.string(from: Date())
+        case .last7:
+            return fmt.string(from: cal.date(byAdding: .day, value: -7, to: Date())!)
+        case .last30:
+            return fmt.string(from: cal.date(byAdding: .day, value: -30, to: Date())!)
+        case .lastYear:
+            return fmt.string(from: cal.date(byAdding: .year, value: -1, to: Date())!)
+        }
+    }
+}
+
 @Observable
 final class AppState {
     // Load state
@@ -8,18 +35,18 @@ final class AppState {
 
     // Search parameters
     var searchQuery = ""
-    var selectedContact = ""
-    var dateFrom = ""
-    var dateTo = ""
-    var direction = "all"
-    var selectedChatIDString = ""
     var useRegex = false
-    var showUnknownContacts = false
-    var showUnknownChats = false
+    var dateFilter: DateFilter = .all
 
-    // Results
-    var results: SearchResults?
-    var allResults: [MessageInfo] = []
+    // Three-column state
+    var chatMatches: [ChatMatch] = []
+    var selectedChat: ChatMatch?
+    var matchesInChat: [MessageMatch] = []
+    var selectedMatch: MessageMatch?
+    var conversationMessages: [MessageInfo] = []
+
+    // Search metadata
+    var totalMatchCount: Int = 0
     var searchTime: Double = 0
     var isSearching = false
     var searchError: String?
@@ -27,10 +54,6 @@ final class AppState {
     // Data
     var store: MessageStore?
     var engine: SearchEngine?
-
-    // Derived lists for dropdowns
-    var contactEntries: [ContactEntry] = []
-    var chatEntries: [ChatEntry] = []
 
     // Stats
     var statsLine = ""
@@ -46,7 +69,6 @@ final class AppState {
             let dbPath = FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent("Library/Messages/chat.db").path
 
-            // Check if we can actually read chat.db (tests Full Disk Access)
             let canRead = FileManager.default.isReadableFile(atPath: dbPath)
             if !canRead {
                 await MainActor.run { self.loadState = .permissionDenied }
@@ -59,7 +81,6 @@ final class AppState {
                 await MainActor.run {
                     self.store = store
                     self.engine = SearchEngine(store: store)
-                    self.buildDropdowns()
                     self.statsLine = "\(store.messageCount.formatted()) messages | \(store.totalContacts.formatted()) contacts | \(store.dateFrom ?? "?") to \(store.dateTo ?? "?")"
                     self.loadState = .ready
                 }
@@ -76,119 +97,116 @@ final class AppState {
         }
     }
 
-    func performSearch(page: Int = 1) {
+    /// Run search: populates chatMatches (left column), clears middle/right
+    func performSearch() {
         guard let engine = engine else { return }
+        let query = searchQuery.trimmingCharacters(in: .whitespaces)
+        if query.isEmpty {
+            chatMatches = []
+            selectedChat = nil
+            matchesInChat = []
+            selectedMatch = nil
+            conversationMessages = []
+            totalMatchCount = 0
+            return
+        }
+
         isSearching = true
         searchError = nil
+        selectedChat = nil
+        matchesInChat = []
+        selectedMatch = nil
+        conversationMessages = []
         let start = Date()
 
-        // Capture all parameters before spawning background task
-        let query = searchQuery
-        let contact = selectedContact
-        let from = dateFrom
-        let to = dateTo
-        let dir = direction
+        let dateFrom = dateFilter.dateFromString()
         let regex = useRegex
-        let chatIDs: [Int64] = selectedChatIDString.isEmpty ? [] :
-            selectedChatIDString.split(separator: ",").compactMap { Int64($0) }
 
         Task.detached {
-            let results = engine.search(
+            // Fetch ALL results (no pagination) to group by chat
+            let allMessages = engine.searchAll(
                 query: query,
-                contactFilter: contact,
-                dateFrom: from,
-                dateTo: to,
-                direction: dir,
-                chatIDs: chatIDs,
-                useRegex: regex,
-                page: page
+                dateFrom: dateFrom,
+                useRegex: regex
             )
             let elapsed = Date().timeIntervalSince(start)
 
-            await MainActor.run { [self] in
-                if page == 1 {
-                    self.allResults = results.results
+            // Group by chat name
+            var chatGroups: [String: (messages: [MessageInfo], chatIDs: Set<Int64>, isGroup: Bool)] = [:]
+            for msg in allMessages {
+                let key = msg.chatName
+                if chatGroups[key] == nil {
+                    chatGroups[key] = (messages: [msg], chatIDs: [msg.chatID], isGroup: msg.isGroup)
                 } else {
-                    self.allResults.append(contentsOf: results.results)
+                    chatGroups[key]!.messages.append(msg)
+                    chatGroups[key]!.chatIDs.insert(msg.chatID)
                 }
-                self.results = results
+            }
+
+            let matches = chatGroups.map { (name, info) in
+                ChatMatch(
+                    id: name,
+                    chatName: name,
+                    chatIDs: Array(info.chatIDs),
+                    isGroup: info.isGroup,
+                    matchCount: info.messages.count
+                )
+            }.sorted { $0.matchCount > $1.matchCount }
+
+            await MainActor.run { [self] in
+                self.chatMatches = matches
+                self.totalMatchCount = allMessages.count
                 self.searchTime = elapsed
                 self.isSearching = false
             }
         }
     }
 
-    func loadMore() {
-        guard let results = results else { return }
-        let nextPage = results.page + 1
-        performSearch(page: nextPage)
+    /// When a chat is selected: populate matchesInChat (middle column)
+    func selectChat(_ chat: ChatMatch) {
+        guard let engine = engine else { return }
+        selectedChat = chat
+        selectedMatch = nil
+        conversationMessages = []
+
+        let query = searchQuery
+        let dateFrom = dateFilter.dateFromString()
+        let regex = useRegex
+        let chatIDs = chat.chatIDs
+
+        Task.detached {
+            let messages = engine.searchAll(
+                query: query,
+                dateFrom: dateFrom,
+                useRegex: regex,
+                chatIDs: chatIDs
+            )
+
+            let matches = messages.map { msg in
+                let snippet = String(msg.text.prefix(80))
+                return MessageMatch(
+                    id: msg.id,
+                    date: msg.date,
+                    snippet: snippet,
+                    isFromMe: msg.isFromMe,
+                    sender: msg.sender
+                )
+            }
+
+            await MainActor.run { [self] in
+                self.matchesInChat = matches
+            }
+        }
     }
 
-    var hasMore: Bool {
-        guard let results = results else { return false }
-        return results.page * results.perPage < results.total
-    }
-
-    func loadContext(messageID: Int64) -> [MessageInfo] {
-        engine?.context(messageID: messageID) ?? []
+    /// When a match is selected: load conversation context (right column)
+    func selectMatch(_ match: MessageMatch) {
+        selectedMatch = match
+        let messages = engine?.context(messageID: match.id, count: 100) ?? []
+        conversationMessages = messages
     }
 
     func loadAttachments(messageID: Int64) -> [AttachmentInfo] {
         engine?.attachments(messageID: messageID) ?? []
-    }
-
-    private func buildDropdowns() {
-        guard let store = store else { return }
-
-        // Contact entries
-        var seenContacts: [String: (name: String, ids: Set<String>)] = [:]
-        for (_, hinfo) in store.handles {
-            let key = hinfo.name.lowercased()
-            if seenContacts[key] == nil {
-                seenContacts[key] = (name: hinfo.name, ids: [hinfo.id])
-            } else {
-                seenContacts[key]!.ids.insert(hinfo.id)
-            }
-        }
-        contactEntries = seenContacts.values.map { entry in
-            let isResolved = !entry.ids.contains(entry.name)
-            return ContactEntry(
-                id: entry.name,
-                name: entry.name,
-                rawID: entry.ids.sorted().first ?? "",
-                isResolved: isResolved
-            )
-        }.sorted { $0.name.lowercased() < $1.name.lowercased() }
-
-        // Chat entries (deduplicated by name, merged IDs)
-        var seenChats: [String: (name: String, isGroup: Bool, msgCount: Int, chatIDs: [Int64], hasDisplayName: Bool)] = [:]
-        for (cid, cinfo) in store.chats {
-            let key = cinfo.name.lowercased()
-            let count = (try? Int(store.db.queryScalar(
-                "SELECT COUNT(*) FROM chatdb.chat_message_join WHERE chat_id = ?",
-                params: [cid]
-            ))) ?? 0
-
-            if seenChats[key] == nil {
-                seenChats[key] = (name: cinfo.name, isGroup: cinfo.isGroup, msgCount: count,
-                                  chatIDs: [cid], hasDisplayName: cinfo.hasDisplayName)
-            } else {
-                seenChats[key]!.chatIDs.append(cid)
-                seenChats[key]!.msgCount += count
-                seenChats[key]!.hasDisplayName = seenChats[key]!.hasDisplayName || cinfo.hasDisplayName
-            }
-        }
-        chatEntries = seenChats.values.compactMap { entry in
-            if entry.msgCount == 0 { return nil }
-            let isResolved = entry.hasDisplayName ||
-                store.contacts.resolvedNames.contains(where: { entry.name.contains($0) })
-            return ChatEntry(
-                id: entry.chatIDs.map(String.init).joined(separator: ","),
-                name: entry.name,
-                isGroup: entry.isGroup,
-                messageCount: entry.msgCount,
-                isResolved: isResolved
-            )
-        }.sorted { $0.name.lowercased() < $1.name.lowercased() }
     }
 }
