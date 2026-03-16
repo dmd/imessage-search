@@ -24,8 +24,8 @@ This builds the Swift package and creates `dist/iMessage Search.app`.
 ## Requirements
 
 - macOS 14 (Sonoma) or later
-- Xcode Command Line Tools (`xcode-select --install`)
 - **Full Disk Access** — the app reads your Messages and Contacts databases in read-only mode. Go to System Settings > Privacy & Security > Full Disk Access, click +, and add iMessage Search.
+- (if building from source) Xcode Command Line Tools (`xcode-select --install`)
 
 ## Features
 
