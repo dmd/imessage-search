@@ -1,19 +1,33 @@
-# Powerful search for your iMessages
+# iMessage Search
 
-This program should not need to exist. You should be able to search your Apple Messages within Messages.
-But the built in search is awful, so here we are.
+You should be able to search your Apple Messages within Apple Messages. But the built in search is awful and half-assed, so here we are.
 
-# Installation
+![screenshot](screenshot.png)
 
-It's just the single file you see here.
+## Building
 
-I refuse to deal with Python dependencies at all any more, even for something as simple as this
-that has only one (Flask). So either install Flask yourself and run with `python3 app.py`, or
-install [uv](https://docs.astral.sh/uv/) and run with `./app.py`.
+```
+./build-app.sh
+```
 
-# Notes
+This builds the Swift package and creates `dist/iMessage Search.app`.
 
-It reads directly from your contacts and messages database. It opens in `mode=ro` (read only),
-so no worries. Your terminal needs Full Disk Access, but if you're somehow using a terminal without
-that enabled, you probably have other issues; consult a competent rabbi.
+To install:
+```
+cp -r "dist/iMessage Search.app" /Applications/
+```
 
+## Requirements
+
+- macOS 14 (Sonoma) or later
+- Xcode Command Line Tools (`xcode-select --install`)
+- **Full Disk Access** — the app reads your Messages and Contacts databases in read-only mode. Go to System Settings > Privacy & Security > Full Disk Access, click +, and add iMessage Search.
+
+## Features
+
+- Full-text search across all messages
+- Filter by contact, chat, date range, and direction (sent/received)
+- Regex search (probably? idk I barely tested that bit)
+- Conversation context expansion (click the triangle)
+- Inline image attachment previews
+- Group chat support with resolved contact names
