@@ -4,18 +4,22 @@ You should be able to search your Apple Messages within Apple Messages. But the 
 
 ![screenshot](screenshot.png)
 
-## Building
+## Install
+
+Download `iMessage.Search.app.zip` from the [latest release](https://github.com/dmd/imessage-search/releases/latest), unzip, and drag to `/Applications/`.
+
+Since the app isn't notarized with Apple, macOS will block it on first launch. To fix this, run once:
+```
+xattr -cr "/Applications/iMessage Search.app"
+```
+
+## Building from source
 
 ```
 ./build-app.sh
 ```
 
 This builds the Swift package and creates `dist/iMessage Search.app`.
-
-To install:
-```
-cp -r "dist/iMessage Search.app" /Applications/
-```
 
 ## Requirements
 
