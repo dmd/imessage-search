@@ -29,6 +29,7 @@ struct MessageBubbleView: View {
                     }()
                     Text(plain)
                         .foregroundStyle(isSent ? .white : .primary)
+                        .textSelection(.enabled)
                 } else {
                     let highlighted = { () -> AttributedString in
                         var a = TextHighlighting.highlight(
@@ -42,6 +43,7 @@ struct MessageBubbleView: View {
                     }()
                     Text(highlighted)
                         .foregroundStyle(isSent ? .white : .primary)
+                        .textSelection(.enabled)
                 }
 
                 // Inline attachments
