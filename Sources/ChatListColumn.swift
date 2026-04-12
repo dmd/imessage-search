@@ -3,17 +3,23 @@ import SwiftUI
 struct ChatListColumn: View {
     let chatMatches: [ChatMatch]
     let selectedChat: ChatMatch?
+    let searchQuery: String
     let onSelect: (ChatMatch) -> Void
 
     var body: some View {
         if chatMatches.isEmpty {
+            let hasQuery = !searchQuery.trimmingCharacters(in: .whitespaces).isEmpty
             VStack(spacing: 8) {
                 Image(systemName: "bubble.left.and.bubble.right")
                     .font(.system(size: 28))
                     .foregroundStyle(.tertiary)
-                Text("No results")
+                Text(hasQuery
+                     ? "No results"
+                     : "No query yet. Enter text to search for to get started.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 16)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {

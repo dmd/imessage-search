@@ -47,6 +47,7 @@ struct ContentView: View {
                         ChatListColumn(
                             chatMatches: state.chatMatches,
                             selectedChat: state.selectedChat,
+                            searchQuery: state.searchQuery,
                             onSelect: { chat in
                                 state.selectChat(chat)
                             }
